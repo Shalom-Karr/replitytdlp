@@ -7,10 +7,10 @@ from flask import Flask, render_template, request, send_file, redirect, url_for
 
 # --- Configuration ---
 app = Flask(__name__)
-DOWNLOAD_FOLDER = os.path.join(os.getcwd(), 'downloads')
-download_status = {} # Dictionary to track status of current jobs
+# IMPORTANT: Use a relative path for the download folder
+DOWNLOAD_FOLDER = os.path.join(os.getcwd(), 'downloads') 
+download_status = {}
 
-# Ensure the download directory exists
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
 
@@ -20,7 +20,6 @@ def update_yt_dlp():
     """Runs yt-dlp -U to ensure the program is up-to-date, ignoring SSL errors."""
     print(f"[{time.strftime('%H:%M:%S')}] Checking for yt-dlp update...")
     try:
-        # We include --no-check-certificates here because the update URL also uses HTTPS
         subprocess.run(["yt-dlp", "-U", "--no-check-certificates"], check=True, capture_output=True, text=True)
         print(f"[{time.strftime('%H:%M:%S')}] yt-dlp update check complete (SSL ignored).")
     except subprocess.CalledProcessError as e:
@@ -34,22 +33,16 @@ def update_yt_dlp():
 def run_download_job(video_url, job_id):
     """Executes yt-dlp in a separate thread."""
     
-    # 1. Update status to Processing
     download_status[job_id]['status'] = 'Processing' 
-    
-    # 2. Run update check first
     update_yt_dlp() 
     
-    # Template for yt-dlp output file name (saves in the downloads folder)
     output_template = os.path.join(DOWNLOAD_FOLDER, f"%(title)s-{job_id}.%(ext)s")
     
     command = [
         "yt-dlp",
         "--no-check-certificates",  
         "--no-mtime",  
-        # FIX: Added User-Agent to help bypass proxy/network inspection issues
         "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        # END FIX
         "-f", "bestvideo+bestaudio/best",
         "--merge-output-format", "mp4", 
         "-o", output_template,
@@ -62,15 +55,12 @@ def run_download_job(video_url, job_id):
         
         # --- File Path Extraction ---
         output_lines = result.stdout.splitlines()
-        
         final_file_line = [line for line in output_lines if 'Destination' in line or 'Writing video to' in line]
         
         if not final_file_line:
             raise Exception("yt-dlp did not output a final file destination path.")
             
         final_file_line = final_file_line[-1]
-        
-        # Extract the file path
         match = re.search(r'(?:Destination|Writing video to):\s*["\']?(.+?)["\']?$', final_file_line)
         
         if match:
@@ -111,14 +101,11 @@ def index():
         if video_url:
             job_id = str(int(time.time() * 1000))
             
-            # CRITICAL FIX: Initialize the job status *before* starting the thread
             download_status[job_id] = {'status': 'Initializing...', 'filename': None, 'error': None}
             
-            # Start the download process in a new thread
             thread = threading.Thread(target=run_download_job, args=(video_url, job_id))
             thread.start()
             
-            # Redirect user immediately to the status page
             return redirect(url_for('status', job_id=job_id))
     
     return render_template('index.html')
@@ -141,6 +128,5 @@ def download_file(job_id):
 
 
 if __name__ == '__main__':
-    print("Starting Flask server...")
-    print(f"Downloads will be saved in: {DOWNLOAD_FOLDER}")
-    app.run(host='127.0.0.1', port=8000, debug=True, use_reloader=False)
+    # When deployed on Replit, Flask is run on 0.0.0.0 for public access.
+    app.run(host='0.0.0.0', port=os.environ.get('PORT', 8000), debug=False, use_reloader=False)
