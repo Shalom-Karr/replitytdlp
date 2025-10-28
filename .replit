@@ -1,0 +1,4 @@
+run = "python app.py"
+
+[nix]
+pkgs = ["python3", "python3Packages.pip", "ffmpeg"]
