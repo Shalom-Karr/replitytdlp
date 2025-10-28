@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Download Status</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
+        .container { width: 80%; max-width: 600px; margin: 0 auto; background: #f9f9f9; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        .status-complete { color: green; font-weight: bold; }
+        .status-processing { color: orange; font-weight: bold; }
+        .status-failed { color: red; font-weight: bold; }
+        a.button { 
+            display: inline-block; 
+            padding: 10px 20px; 
+            background-color: #4CAF50; 
+            color: white; 
+            text-decoration: none; 
+            border-radius: 4px;
+            margin-top: 15px;
+        }
+    </style>
+    <!-- Auto-refresh the page every 5 seconds if still processing -->
+    {% if status_data.status == 'Processing' %}
+    <meta http-equiv="refresh" content="5">
+    {% endif %}
+</head>
+<body>
+    <div class="container">
+        <h1>Download Job Status (ID: {{ job_id }})</h1>
+        
+        <p>Current Status: 
+            {% if status_data.status == 'Complete' %}
+                <span class="status-complete">{{ status_data.status }}</span>
+            {% elif status_data.status == 'Processing' %}
+                <span class="status-processing">{{ status_data.status }}...</span>
+            {% else %}
+                <span class="status-failed">{{ status_data.status }}</span>
+            {% endif %}
+        </p>
+
+        {% if status_data.status == 'Processing' %}
+            <p>Your video is currently downloading in the background. Please wait or check the console for progress.</p>
+        
+        {% elif status_data.status == 'Complete' %}
+            <p>File Name: <strong>{{ status_data.filename }}</strong></p>
+            <a href="{{ url_for('download_file', job_id=job_id) }}" class="button">
+                Click to Download File
+            </a>
+            <p>The file is also saved locally in the <code>downloads/</code> folder.</p>
+
+        {% elif status_data.status == 'Failed' %}
+            <h2>Error Details:</h2>
+            <pre style="text-align: left; background: #fee; padding: 10px; overflow-x: auto;">{{ status_data.error }}</pre>
+            <p>The download failed. Please check the server console for full logs or ensure the YouTube URL is valid.</p>
+        
+        {% endif %}
+
+        <p><a href="{{ url_for('index') }}">Start a New Download</a></p>
+    </div>
+</body>
+</html>
