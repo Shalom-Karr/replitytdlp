@@ -7,7 +7,6 @@ from flask import Flask, render_template, request, send_file, redirect, url_for
 
 # --- Configuration ---
 app = Flask(__name__)
-# IMPORTANT: Use a relative path for the download folder
 DOWNLOAD_FOLDER = os.path.join(os.getcwd(), 'downloads') 
 download_status = {}
 
@@ -36,40 +35,33 @@ def run_download_job(video_url, job_id):
     download_status[job_id]['status'] = 'Processing' 
     update_yt_dlp() 
     
-    output_template = os.path.join(DOWNLOAD_FOLDER, f"%(title)s-{job_id}.%(ext)s")
+    # --- SIMPLIFIED OUTPUT NAMING FIX ---
+    # Define the exact, non-dynamic final output path
+    final_output_name = f"video-{job_id}.mp4"
+    output_template = os.path.join(DOWNLOAD_FOLDER, final_output_name)
     
     command = [
         "yt-dlp",
         "--no-check-certificates",  
         "--no-mtime",  
         "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "-f", "bestvideo+bestaudio/best",
+        # Force mp4 and m4a stream selection for merging (requires ffmpeg)
+        "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best", 
         "--merge-output-format", "mp4", 
+        # Explicitly set output name so we know where to check later
         "-o", output_template,
         video_url
     ]
     
+    # We now know the expected file path, so we clear out the complex regex logic
+    final_filename_full = output_template
+
     try:
         # Execute the command
-        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        # Note: We expect CalledProcessError if yt-dlp fails (e.g., due to ffmpeg not running)
+        subprocess.run(command, capture_output=True, text=True, check=True)
         
-        # --- File Path Extraction ---
-        output_lines = result.stdout.splitlines()
-        final_file_line = [line for line in output_lines if 'Destination' in line or 'Writing video to' in line]
-        
-        if not final_file_line:
-            raise Exception("yt-dlp did not output a final file destination path.")
-            
-        final_file_line = final_file_line[-1]
-        match = re.search(r'(?:Destination|Writing video to):\s*["\']?(.+?)["\']?$', final_file_line)
-        
-        if match:
-            final_filename_full = match.group(1).strip()
-        else:
-            raise Exception("Could not reliably extract the final filename from yt-dlp output.")
-
-
-        # Check if the file exists and update status
+        # Check if the file exists at the KNOWN expected path
         if os.path.exists(final_filename_full):
             base_name = os.path.basename(final_filename_full)
             download_status[job_id].update({
@@ -78,20 +70,23 @@ def run_download_job(video_url, job_id):
                 'filepath': final_filename_full
             })
         else:
-            raise Exception(f"File was not found at expected path: {final_filename_full}")
+            # If the file isn't there, ffmpeg likely failed, but yt-dlp didn't exit non-zero.
+            raise Exception(f"File was not found at expected path: {final_filename_full}. Check if FFmpeg ran correctly.")
             
     except subprocess.CalledProcessError as e:
+        # If yt-dlp itself failed (non-zero exit code)
         download_status[job_id].update({
             'status': 'Failed',
-            'error': f"yt-dlp failed: {e.stderr}"
+            'error': f"yt-dlp failed (Code: {e.returncode}): {e.stderr}"
         })
     except Exception as e:
+        # General error or path check failure
         download_status[job_id].update({
             'status': 'Failed',
             'error': f"An internal error occurred: {str(e)}"
         })
 
-# --- Flask Routes ---
+# --- Flask Routes (Remain Unchanged) ---
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -100,21 +95,16 @@ def index():
         video_url = request.form.get('video_url')
         if video_url:
             job_id = str(int(time.time() * 1000))
-            
             download_status[job_id] = {'status': 'Initializing...', 'filename': None, 'error': None}
-            
             thread = threading.Thread(target=run_download_job, args=(video_url, job_id))
             thread.start()
-            
             return redirect(url_for('status', job_id=job_id))
-    
     return render_template('index.html')
 
 @app.route('/status/<job_id>')
 def status(job_id):
     if job_id not in download_status:
         return "Job not found", 404
-    
     status_data = download_status[job_id]
     return render_template('download_page.html', job_id=job_id, status_data=status_data)
 
@@ -122,7 +112,6 @@ def status(job_id):
 def download_file(job_id):
     if job_id not in download_status or download_status[job_id]['status'] != 'Complete':
         return "File not ready or job failed.", 404
-
     filepath = download_status[job_id]['filepath']
     return send_file(filepath, as_attachment=True)
 
